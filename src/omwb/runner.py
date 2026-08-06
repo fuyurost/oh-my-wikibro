@@ -79,7 +79,26 @@ async def run_site(site: SiteConfig, out_root: Path, fresh: bool = False,
     fetcher = PageFetcher(site, out_dir / "cache.sqlite", fresh)
     await fetcher.open()
     sem = asyncio.Semaphore(site.concurrency)
+    # 浏览器渲染串行化:并发启动多个 Chromium 实例会互相抢资源,
+    # 导致页面导航超时(Windows 上尤其明显),因此一次只渲染一页。
+    render_sem = asyncio.Semaphore(1)
     urls_iter = iter(urls)
+
+    async def _render(url: str, timeout: float, retries: int = 3) -> tuple[str | None, str | None]:
+        """渲染 URL,返回 (html, error);失败时 html 为 None、error 为真实原因。
+
+        站点导航偶发超时(实测 domcontentloaded 有时 >30s),失败后重试数次。
+        """
+        last_err = ""
+        for attempt in range(retries):
+            async with render_sem:
+                html, err = await asyncio.to_thread(render_url, url, timeout)
+            if html:
+                return html, None
+            last_err = err
+            if attempt < retries - 1:
+                await asyncio.sleep(1.0)
+        return None, last_err
 
     async def process(url: str) -> None:
         try:
@@ -109,15 +128,20 @@ async def run_site(site: SiteConfig, out_root: Path, fresh: bool = False,
                 page.title = url.rsplit("/", 1)[-1].rsplit(".", 1)[0]
                 result.pages.append(page)
                 return
+            render_error = ""
             if site.js_render:
-                rendered = await asyncio.to_thread(render_url, url, site.timeout)
-                if rendered:
+                rendered, err = await _render(url, site.timeout)
+                if err:
+                    render_error = err
+                elif rendered:
                     page.html = rendered
             res = await asyncio.to_thread(extract_page, page.html, url, adapter)
             page.title, page.meta, page.toc, page.markdown = res.title, res.meta, res.toc, res.markdown
             if not page.markdown and site.js_fallback and looks_like_spa(html):
-                rendered = await asyncio.to_thread(render_url, url, site.timeout)
-                if rendered:
+                rendered, err = await _render(url, site.timeout)
+                if err:
+                    render_error = err
+                elif rendered:
                     res2 = await asyncio.to_thread(extract_page, rendered, url, adapter)
                     if res2.markdown:
                         page.html = rendered
@@ -128,7 +152,7 @@ async def run_site(site: SiteConfig, out_root: Path, fresh: bool = False,
                     page.html = ""
                 result.pages.append(page)
             else:
-                page.error = "正文提取为空"
+                page.error = f"渲染失败: {render_error}" if render_error else "正文提取为空"
                 result.failed.append(page)
 
     try:
