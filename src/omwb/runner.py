@@ -153,8 +153,10 @@ async def _convert(result: SiteResult, site: SiteConfig, out_dir: Path) -> None:
             await asyncio.to_thread(write_corpus_md, result, out_dir)
         elif fmt == "pdf":
             # playwright sync API 不能在 asyncio 事件循环线程内运行
-            await asyncio.to_thread(write_all_pdf, result, out_dir / "pdf",
-                                    combined=site.combined_pdf)
+            _, combined_path = await asyncio.to_thread(
+                write_all_pdf, result, out_dir / "pdf", combined=site.combined_pdf)
+            if combined_path is not None:
+                combined_path.replace(out_dir / "combined.pdf")
 
 
 def _write_manifest(result: SiteResult, source: str, out_dir: Path) -> None:
