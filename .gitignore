@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+omwb-out/
+*.sqlite
+*.sqlite3
+dist/
+build/
+*.egg-info/
