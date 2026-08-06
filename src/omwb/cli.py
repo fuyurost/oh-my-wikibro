@@ -136,9 +136,14 @@ def inspect(
 
 
 @app.callback(invoke_without_command=True)
-def _version(version: bool = typer.Option(False, "--version", help="显示版本")):
+def _main(ctx: typer.Context, version: bool = typer.Option(False, "--version", help="显示版本")):
     if version:
         console.print(f"oh-my-wikibro {__version__}")
+        raise typer.Exit()
+    if ctx.invoked_subcommand is None:
+        from .interactive import main_loop
+
+        main_loop()
         raise typer.Exit()
 
 
