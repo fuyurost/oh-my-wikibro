@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oh-my-wikibro"
+version = "0.1.0"
+description = "全量抓取 wiki/在线技术文档 → Markdown / JSON / PDF / LLM 语料 (离线文档、知识库输入)"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.7",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "PyYAML>=6.0",
+    "trafilatura>=2.0",
+    "lxml>=5.2",
+    "cssselect>=1.2",
+    "defusedxml>=0.7",
+    "playwright>=1.45",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2"]
+
+[project.scripts]
+omwb = "omwb.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

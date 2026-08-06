@@ -1,0 +1,24 @@
+# oh-my-wikibro 站点配置示例
+# 用法: omwb build -c examples/sites.yaml -o omwb-out
+sites:
+  - url: https://docs.python.org/zh-cn/3/
+    name: python-zh
+    formats: [md, json, jsonl, pdf]
+    combined_pdf: true
+    exclude:
+      - '*/whatsnew/*'
+      - '*/bugs*'
+      - '*/improve-page*'
+      - '*/genindex*'
+    concurrency: 8
+    delay: 0.3
+
+  - url: https://requests.readthedocs.io/en/latest/
+    name: requests-docs
+    formats: [md, jsonl]
+    adapter: auto
+
+  - url: https://llmstxt.org/
+    name: llmstxt-org
+    adapter: llmstxt
+    formats: [md, jsonl]
