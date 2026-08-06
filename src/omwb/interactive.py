@@ -24,12 +24,23 @@ console = Console()
 DEFAULT_OUT = "omwb-out"
 
 LOGO = r"""[bold cyan]
-  ___  _  _  __  __            _     _            _       
- / _ \| | | |  \/  |__ _ _ _ _| |__ | |__ ___ _ _| |_ _ _ 
-| (_) | |_| | |\/| / _` | '_| '_ \ '_ \ / _ \ '_|  _| '_|
- \___/ \___/|_|  |_\__,_|_| | .__/_.__/_\___/_|  \__|_|  
-                            |_|                          
+  ___  _       __  __        __        ___ _    _ _               
+ / _ \| |__   |  \/  |_   _  \ \      / (_) | _(_) |__  _ __ ___  
+| | | | '_ \  | |\/| | | | |  \ \ /\ / /| | |/ / | '_ \| '__/ _ \ 
+| |_| | | | | | |  | | |_| |   \ V  V / | |   <| | |_) | | | (_) |
+ \___/|_| |_| |_|  |_|\__, |    \_/\_/  |_|_|\_\_|_.__/|_|  \___/ 
+                      |___/                                       
 [/bold cyan]"""
+
+
+def _logo() -> str:
+    try:
+        import pyfiglet
+
+        art = pyfiglet.figlet_format("Oh My Wikibro", font="standard").rstrip()
+        return f"[bold cyan]{art}[/bold cyan]"
+    except ImportError:  # 降级:无 pyfiglet 时用静态 logo
+        return LOGO
 
 FORMAT_CHOICES = [
     {"name": "Markdown (每页一 .md,带 frontmatter)", "value": "md", "checked": True},
@@ -197,7 +208,7 @@ def _update_flow() -> None:
 
 
 def main_loop() -> None:
-    console.print(LOGO)
+    console.print(_logo())
     console.print("[dim]全量抓取 wiki/在线技术文档 → Markdown / JSON / PDF / LLM 语料[/dim]\n")
     while True:
         try:
