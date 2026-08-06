@@ -69,6 +69,8 @@ async def run_site(site: SiteConfig, out_root: Path, fresh: bool = False,
     if site.max_pages:
         urls = urls[: site.max_pages]
 
+    if progress is not None and task_id is None:
+        task_id = progress.add_task(f"抓取 {site.site_name}", total=len(urls))
     result = SiteResult(
         name=site.site_name, url=site.url, adapter=adapter_name,
         out_dir=str(out_dir), started_at=time.time(),
@@ -137,12 +139,16 @@ async def run_site(site: SiteConfig, out_root: Path, fresh: bool = False,
     result.finished_at = time.time()
     if not result.pages and not result.failed:
         raise RuntimeError("抓取未产生任何页面")
-    await _convert(result, site, out_dir)
+    pdf_task_id = None
+    if progress is not None and "pdf" in site.formats and result.pages:
+        pdf_task_id = progress.add_task(f"PDF 转换 ({site.site_name})", total=len(result.pages))
+    await _convert(result, site, out_dir, progress=progress, pdf_task_id=pdf_task_id)
     _write_manifest(result, disc.source, out_dir)
     return result
 
 
-async def _convert(result: SiteResult, site: SiteConfig, out_dir: Path) -> None:
+async def _convert(result: SiteResult, site: SiteConfig, out_dir: Path,
+                   progress=None, pdf_task_id=None) -> None:
     for fmt in site.formats:
         if fmt == "md":
             await asyncio.to_thread(write_all_md, result, out_dir / "md")
@@ -154,7 +160,8 @@ async def _convert(result: SiteResult, site: SiteConfig, out_dir: Path) -> None:
         elif fmt == "pdf":
             # playwright sync API 不能在 asyncio 事件循环线程内运行
             _, combined_path = await asyncio.to_thread(
-                write_all_pdf, result, out_dir / "pdf", combined=site.combined_pdf)
+                write_all_pdf, result, out_dir / "pdf", combined=site.combined_pdf,
+                progress=progress, task_id=pdf_task_id)
             if combined_path is not None:
                 combined_path.replace(out_dir / "combined.pdf")
 

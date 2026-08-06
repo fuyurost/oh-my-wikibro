@@ -108,12 +108,15 @@ def write_pdf(page: Page, out_dir: Path, site_title: str) -> Path:
     return out
 
 
-def write_all_pdf(result: SiteResult, out_dir: Path, combined: bool = False) -> tuple[int, Path | None]:
+def write_all_pdf(result: SiteResult, out_dir: Path, combined: bool = False,
+                  progress=None, task_id=None) -> tuple[int, Path | None]:
     n = 0
     for page in result.pages:
         if page.markdown:
             write_pdf(page, out_dir, result.name)
             n += 1
+            if progress is not None and task_id is not None:
+                progress.update(task_id, advance=1)
     combined_path: Path | None = None
     if combined and result.pages:
         combined_path = out_dir / "combined.pdf"
