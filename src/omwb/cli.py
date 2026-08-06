@@ -112,7 +112,7 @@ def inspect(
         console.print(f"  … 共 {len(disc.urls)} 个")
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def _version(version: bool = typer.Option(False, "--version", help="显示版本")):
     if version:
         console.print(f"oh-my-wikibro {__version__}")
