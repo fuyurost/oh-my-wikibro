@@ -19,6 +19,7 @@ from .cli import _run
 from .config import SiteConfig, load_sites, site_from_args
 from .discover import discover
 from .exam import LLMConfigError, LLMError, generate_exam, review_code
+from .exam.session import run_session
 from .exam.variants import add_variants
 from .runner import _detect_site_adapter, run_site
 from .verify import render_report, verify_site
@@ -293,6 +294,57 @@ def _exam_flow() -> None:
                 console.print(f"[red]✗ 审查失败: {e}[/red]")
 
 
+def _exam_session_flow() -> None:
+    """开始测验:选站点 → 主题 → 难度 → 题数 → 逐题盲答 → 提交批改 + 错误统计。"""
+    sites = _list_existing()
+    if not sites:
+        console.print("[yellow]omwb-out 下还没有已抓取的站点,先抓取再开始测验[/yellow]")
+        return
+    table = Table(title="已抓取站点")
+    table.add_column("名称", style="bold")
+    table.add_column("URL")
+    table.add_column("页数")
+    for name, m in sites:
+        table.add_row(name, m.get("url", ""), str(m.get("pages", 0)))
+    console.print(table)
+    choice = questionary.select(
+        "选择语料站点",
+        choices=[f"{name} ({m.get('pages', 0)} 页)" for name, m in sites] + ["返回"],
+    ).ask()
+    if choice is None or choice == "返回":
+        return
+    site = choice.split(" (")[0]
+    topic = questionary.text("主题关键词", validate=lambda v: bool(v.strip())).ask()
+    if not topic:
+        return
+    level = questionary.select("难度", choices=["basic", "medium", "hard"],
+                               default="medium").ask()
+    if level is None:
+        return
+    count_raw = questionary.text("题目数量", default="3",
+                                 validate=lambda v: v.isdigit() and int(v) >= 1).ask()
+    if count_raw is None:
+        return
+    console.print("[dim]答题阶段不展示原文与讲解(盲答),逐题输入后以单独一行 ---END--- 结束[/dim]")
+    try:
+        record = run_session(site, topic, level=level, count=int(count_raw), out=DEFAULT_OUT)
+    except (LLMConfigError, LLMError, FileNotFoundError, ValueError) as e:
+        console.print(f"[red]✗ 测验失败: {e}[/red]")
+        return
+    console.print(f"[bold green]测验完成[/bold green] {record['session_id']} | "
+                  f"主题: [cyan]{record['topic']}[/cyan]")
+    for r in record["review"]:
+        points = "、".join(r.get("error_points") or []) or "-"
+        console.print(f"  第 {r['index']} 题:{r['score']}/10 [{r['verdict']}] 错误点: {points}")
+    for it in record.get("error_summary") or []:
+        ex = ", ".join(str(i) for i in it.get("examples") or [])
+        console.print(f"  [yellow]{it['concept']}[/yellow] ×{it['count']} "
+                      f"(占错题 {it['ratio']}) 例题:第 {ex} 题")
+    if not record.get("error_summary"):
+        console.print("[green]全部通过[/green]")
+    console.print(f"[dim]报告: {Path(DEFAULT_OUT) / site / 'exam' / 'sessions' / 'review.md'}[/dim]")
+
+
 def main_loop() -> None:
     console.print(_logo())
     console.print("[dim]全量抓取 wiki/在线技术文档 → Markdown / JSON / PDF / LLM 语料[/dim]\n")
@@ -307,6 +359,7 @@ def main_loop() -> None:
                     "查看/更新已抓取站点",
                     "校验输出完整性",
                     "生成练习试题",
+                    "开始测验",
                     "退出",
                 ],
             ).ask()
@@ -331,3 +384,5 @@ def main_loop() -> None:
             _verify_flow()
         elif choice == "生成练习试题":
             _exam_flow()
+        elif choice == "开始测验":
+            _exam_session_flow()

@@ -210,11 +210,13 @@ def _topic_slug(topic: str) -> str:
     return slug[:24] or "topic"
 
 
-def _exam_id(topic: str) -> str:
-    return f"{_topic_slug(topic)}-{time.strftime('%Y%m%d-%H%M%S')}"
+def _exam_id(topic: str, id_tag: str = "") -> str:
+    base = f"{_topic_slug(topic)}-{time.strftime('%Y%m%d-%H%M%S')}"
+    return f"{base}-{id_tag}" if id_tag else base
 
 
-def _build_exam(raw: dict, *, site: str, topic: str, level: str, chunks: list[dict]) -> Exam:
+def _build_exam(raw: dict, *, site: str, topic: str, level: str, chunks: list[dict],
+                id_tag: str = "") -> Exam:
     """LLM 原始输出 + 本地元数据 → Exam 模型。
 
     source_chunks 与 source_annotations 的原文均来自实际选材:批注按 material_index
@@ -244,7 +246,7 @@ def _build_exam(raw: dict, *, site: str, topic: str, level: str, chunks: list[di
         for i in sorted(by_index)
     ]
     return Exam(
-        id=_exam_id(topic),
+        id=_exam_id(topic, id_tag),
         site=site,
         topic=topic,
         level=raw_level,
@@ -313,8 +315,12 @@ def render_exam_markdown(exam: dict) -> str:
 
 def generate_exam(site: str, topic: str, level: str = "medium", out: str | Path = "omwb-out",
                   variants: int = 3, base_url: str | None = None, api_key: str | None = None,
-                  model: str | None = None, config: LLMConfig | None = None) -> dict:
-    """生成开放性试题(含原文锚定讲解与自动变体),写回 omwb-out/<site>/exam/,返回试题 dict。"""
+                  model: str | None = None, config: LLMConfig | None = None,
+                  id_tag: str = "") -> dict:
+    """生成开放性试题(含原文锚定讲解与自动变体),写回 omwb-out/<site>/exam/,返回试题 dict。
+
+    id_tag 用于同一秒内生成多题时区分 id(如会话中的 q1/q2)。
+    """
     if config is None:
         config = resolve_config(base_url, api_key, model)
     site_dir = Path(out) / site
@@ -327,7 +333,8 @@ def generate_exam(site: str, topic: str, level: str = "medium", out: str | Path 
     for _attempt in range(2):  # 校验失败重试一次(调用失败已由 chat_json 内部重试)
         try:
             raw = chat_json(config, messages)
-            exam = _build_exam(raw, site=site, topic=topic, level=level, chunks=chunks)
+            exam = _build_exam(raw, site=site, topic=topic, level=level, chunks=chunks,
+                               id_tag=id_tag)
             break
         except ValidationError as e:
             last_err = e

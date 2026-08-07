@@ -17,6 +17,7 @@ from .discover import discover
 from .exam.generate import generate_exam
 from .exam.llm import LLMConfigError, LLMError
 from .exam.review import review_code, review_output_paths
+from .exam.session import run_session
 from .exam.variants import add_variants
 from .runner import _detect_site_adapter, run_site
 
@@ -222,7 +223,7 @@ def exam_generate(
     api_key: str = typer.Option(None, "--api-key", envvar="OMWB_LLM_API_KEY", help="LLM API Key"),
     model: str = typer.Option(None, "--model", envvar="OMWB_LLM_MODEL", help="LLM 模型名"),
 ):
-    """基于已抓取语料按主题生成开放性试题(含 concepts 与自动变体)。"""
+    """基于已抓取语料按主题生成开放性试题(含原文锚定讲解与自动变体)。"""
     try:
         exam = generate_exam(site, topic, level=level, out=out, variants=variants,
                              base_url=base_url, api_key=api_key, model=model)
@@ -300,6 +301,51 @@ def exam_variants(
     console.print(f"[bold green]已生成 {len(variants)} 个变体并写回[/bold green] {exam_json}")
     for v in variants:
         console.print(f"  - [{v.get('dimension', '')}] {v.get('title') or v['task'][:60]}")
+
+
+@exam_app.command("session")
+def exam_session(
+    site: str = typer.Argument(..., help="站点名(omwb-out 下的目录,需已抓取语料)"),
+    topic: str = typer.Argument(..., help="主题关键词"),
+    count: int = typer.Option(3, "--count", help="题目数量"),
+    level: str = typer.Option("medium", "--level", help="难度:basic|medium|hard"),
+    out: str = typer.Option("omwb-out", "--out", "-o", help="输出根目录"),
+    answers_dir: str = typer.Option(
+        None, "--answers-dir",
+        help="答案目录(按题号读 01.py/02.py);缺省为交互粘贴,以单独一行 ---END--- 结束"),
+    base_url: str = typer.Option(None, "--base-url", envvar="OMWB_LLM_BASE_URL", help="LLM 服务地址"),
+    api_key: str = typer.Option(None, "--api-key", envvar="OMWB_LLM_API_KEY", help="LLM API Key"),
+    model: str = typer.Option(None, "--model", envvar="OMWB_LLM_MODEL", help="LLM 模型名"),
+):
+    """完整考试会话:出题 → 盲答 → 提交批改+题解 → 错误统计(error-book 只增不改)。"""
+    try:
+        record = run_session(site, topic, level=level, count=count, out=out,
+                             answers_dir=answers_dir,
+                             base_url=base_url, api_key=api_key, model=model)
+    except (LLMConfigError, LLMError, FileNotFoundError, ValueError) as e:
+        console.print(f"[red]✗ {e}[/red]")
+        raise typer.Exit(1)
+    session_dir = Path(out) / site / "exam" / "sessions"
+    console.print(f"[bold green]测验完成[/bold green] {record['session_id']} | "
+                  f"主题: [cyan]{record['topic']}[/cyan] | 题数: {record['count']}")
+    table = Table(title="批改总览")
+    table.add_column("题号", style="bold")
+    table.add_column("评分")
+    table.add_column("结论")
+    table.add_column("错误点")
+    for r in record["review"]:
+        table.add_row(str(r["index"]), f"{r['score']}/10", r["verdict"],
+                      "、".join(r.get("error_points") or []) or "-")
+    console.print(table)
+    for it in record.get("error_summary") or []:
+        ex = ", ".join(str(i) for i in it.get("examples") or [])
+        console.print(f"  [yellow]{it['concept']}[/yellow] ×{it['count']} "
+                      f"(占错题 {it['ratio']}) 例题:第 {ex} 题")
+    if not record.get("error_summary"):
+        console.print("[green]全部通过,无错误统计[/green]")
+    console.print(f"[dim]会话记录: {session_dir / (record['session_id'] + '.json')}[/dim]")
+    console.print(f"[dim]批改报告: {session_dir / 'review.md'}[/dim]")
+    console.print(f"[dim]错误簿: {Path(out) / site / 'exam' / 'error-book.json'}[/dim]")
 
 
 @app.callback(invoke_without_command=True)
