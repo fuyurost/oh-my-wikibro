@@ -116,6 +116,44 @@ def build(
 
 
 @app.command()
+def verify(
+    out: str = typer.Argument("omwb-out", help="输出根目录"),
+    site: str = typer.Option(None, "--site", help="站点名;缺省校验全部站点"),
+    out_opt: str = typer.Option(None, "--out", "-o", help="输出根目录 (覆盖位置参数)"),
+):
+    """校验输出完整性:按 manifest 核对各格式文件,并校验 corpus.jsonl 引用。"""
+    from .verify import render_report, verify_site
+
+    out_dir = Path(out_opt or out)
+    if not out_dir.is_dir():
+        console.print(f"[red]输出根目录不存在: {out_dir}[/red]")
+        raise typer.Exit(1)
+    if site:
+        candidates = [site]
+    else:
+        candidates = sorted(d.name for d in out_dir.iterdir() if d.is_dir())
+    checked = 0
+    bad = False
+    for name in candidates:
+        site_dir = out_dir / name
+        if not (site_dir / "manifest.json").is_file():
+            console.print(f"[yellow]跳过 {name}: 无 manifest.json[/yellow]")
+            if site:
+                bad = True  # 显式指定的站点无 manifest 视为校验失败
+            continue
+        checked += 1
+        report = verify_site(out_dir, name)
+        render_report(report)
+        if not report["ok"]:
+            bad = True
+    if checked == 0:
+        console.print("[yellow]没有可校验的站点[/yellow]")
+        bad = True
+    if bad:
+        raise typer.Exit(1)
+
+
+@app.command()
 def inspect(
     url: str = typer.Argument(..., help="站点起始 URL"),
     adapter: str = typer.Option("auto", "--adapter", "-a", help="适配器(auto 自动检测)"),

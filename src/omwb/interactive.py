@@ -19,6 +19,7 @@ from .cli import _run
 from .config import SiteConfig, load_sites, site_from_args
 from .discover import discover
 from .runner import _detect_site_adapter, run_site
+from .verify import render_report, verify_site
 
 console = Console()
 DEFAULT_OUT = "omwb-out"
@@ -207,6 +208,28 @@ def _update_flow() -> None:
         console.print(f"[red]✗ {name}: {e}[/red]")
 
 
+def _verify_flow() -> None:
+    """校验已抓取站点的输出完整性。"""
+    sites = _list_existing()
+    if not sites:
+        console.print("[yellow]omwb-out 下还没有已抓取的站点[/yellow]")
+        return
+    names = [name for name, _ in sites]
+    choice = questionary.select(
+        "选择要校验的站点",
+        choices=[*names, "全部站点", "返回"],
+    ).ask()
+    if choice is None or choice == "返回":
+        return
+    targets = names if choice == "全部站点" else [choice]
+    bad = False
+    for name in targets:
+        report = verify_site(Path(DEFAULT_OUT), name)
+        render_report(report)
+        bad = bad or not report["ok"]
+    console.print("[red]校验发现缺失/空文件[/red]" if bad else "[green]校验通过[/green]")
+
+
 def main_loop() -> None:
     console.print(_logo())
     console.print("[dim]全量抓取 wiki/在线技术文档 → Markdown / JSON / PDF / LLM 语料[/dim]\n")
@@ -219,6 +242,7 @@ def main_loop() -> None:
                     "预览站点 URL 清单",
                     "按配置文件批量抓取",
                     "查看/更新已抓取站点",
+                    "校验输出完整性",
                     "退出",
                 ],
             ).ask()
@@ -239,3 +263,5 @@ def main_loop() -> None:
             _build_flow()
         elif choice == "查看/更新已抓取站点":
             _update_flow()
+        elif choice == "校验输出完整性":
+            _verify_flow()

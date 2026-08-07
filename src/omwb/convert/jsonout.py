@@ -7,13 +7,14 @@ import time
 from pathlib import Path
 
 from ..models import Page, SiteResult
-from . import out_file
+from . import out_file, rel_out_file
 
 
 def _page_dict(page: Page) -> dict:
     return {
         "url": page.url,
         "path": page.rel_path,
+        "file": rel_out_file(page, "md"),
         "title": page.title,
         "toc": page.toc,
         "meta": page.meta,

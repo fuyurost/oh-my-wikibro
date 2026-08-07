@@ -60,7 +60,7 @@ async def run_site(site: SiteConfig, out_root: Path, fresh: bool = False,
         )
         result.finished_at = time.time()
         await _convert(result, site, out_dir)
-        _write_manifest(result, disc.source, out_dir)
+        _write_manifest(result, disc.source, out_dir, site.formats)
         return result
 
     urls = disc.urls
@@ -167,7 +167,7 @@ async def run_site(site: SiteConfig, out_root: Path, fresh: bool = False,
     if progress is not None and "pdf" in site.formats and result.pages:
         pdf_task_id = progress.add_task(f"PDF 转换 ({site.site_name})", total=len(result.pages))
     await _convert(result, site, out_dir, progress=progress, pdf_task_id=pdf_task_id)
-    _write_manifest(result, disc.source, out_dir)
+    _write_manifest(result, disc.source, out_dir, site.formats)
     return result
 
 
@@ -190,9 +190,10 @@ async def _convert(result: SiteResult, site: SiteConfig, out_dir: Path,
                 combined_path.replace(out_dir / "combined.pdf")
 
 
-def _write_manifest(result: SiteResult, source: str, out_dir: Path) -> None:
+def _write_manifest(result: SiteResult, source: str, out_dir: Path, formats: list[str]) -> None:
     manifest = result.to_manifest()
     manifest["source"] = source
+    manifest["formats"] = list(formats)
     manifest["urls"] = [p.url for p in result.pages]
     manifest["failed_urls"] = [{"url": p.url, "error": p.error} for p in result.failed]
     (out_dir / "manifest.json").write_text(

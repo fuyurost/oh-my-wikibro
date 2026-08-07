@@ -52,3 +52,27 @@ def test_chunk_markdown_heading_context():
     chunks = chunk_markdown(md, max_tokens=1000)
     assert len(chunks) == 1
     assert chunks[0]["heading_path"] == ["章", "节", "小节"]
+
+
+def test_write_corpus_jsonl_file_field(tmp_path):
+    import json
+
+    from omwb.models import Page, SiteResult
+    from omwb.pipeline import write_corpus_jsonl
+
+    page = Page(url="https://a.com/docs/intro", rel_path="docs/intro", title="Intro",
+                markdown="# 标题\n\n内容。")
+    result = SiteResult(name="demo", url="https://a.com", adapter="generic",
+                        out_dir=str(tmp_path), pages=[page])
+    n, out = write_corpus_jsonl(result, tmp_path)
+    assert n == 1
+    rec = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
+    assert rec["file"] == "md/docs/intro.md"
+
+
+def test_page_dict_file_field():
+    from omwb.convert.jsonout import _page_dict
+    from omwb.models import Page
+
+    d = _page_dict(Page(url="https://a.com/docs/intro", rel_path="docs/intro", title="T"))
+    assert d["file"] == "md/docs/intro.md"

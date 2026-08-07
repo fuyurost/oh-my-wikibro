@@ -43,3 +43,8 @@ def out_file(page: Page, out_dir: Path, ext: str) -> Path:
     p = out_dir / f"{page.rel_path}.{ext}"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def rel_out_file(page: Page, ext: str) -> str:
+    """页面在站点输出目录内的相对路径 (如 md/docs/intro.md)。"""
+    return f"{ext}/{page.rel_path}.{ext}"

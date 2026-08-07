@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from .convert import rel_out_file
 from .models import SiteResult
 
 _CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]")
@@ -183,6 +184,7 @@ def write_corpus_jsonl(result: SiteResult, out_dir: Path, max_tokens: int = 1500
                     "site": result.name,
                     "url": page.url,
                     "path": page.rel_path,
+                    "file": rel_out_file(page, "md"),
                     "title": page.title,
                     "seq": seq,
                     "heading_path": chunk["heading_path"],
