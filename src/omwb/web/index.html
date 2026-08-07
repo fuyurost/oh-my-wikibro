@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>oh-my-wikibro · Web UI</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#/">oh-my-wikibro<span class="brand-sub">Web UI</span></a>
+    <div class="topbar-actions">
+      <span id="fetch-status" class="fetch-status" hidden></span>
+      <button id="btn-new" class="btn btn-primary" type="button">＋ 抓取新站点</button>
+    </div>
+  </div>
+</header>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<div id="progress-panel" class="progress-panel" hidden>
+  <div class="progress-head">
+    <span class="pulse-dot" aria-hidden="true"></span>
+    <b id="progress-site" class="progress-site">正在抓取…</b>
+    <span id="progress-stage" class="progress-stage">发现页面</span>
+  </div>
+  <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+    <div id="progress-fill" class="progress-fill" style="width:0%"></div>
+  </div>
+  <div class="progress-foot">
+    <span id="progress-count" class="muted">0 / 0</span>
+    <b id="progress-pct" class="progress-pct">0%</b>
+  </div>
+</div>
+
+<div id="drawer" class="drawer" hidden>
+  <div class="drawer-backdrop" data-close-drawer></div>
+  <div class="drawer-panel" role="dialog" aria-modal="true" aria-label="抓取新站点">
+    <div class="drawer-head">
+      <h2>抓取新站点</h2>
+      <button class="icon-btn" type="button" data-close-drawer aria-label="关闭">✕</button>
+    </div>
+    <form id="fetch-form" class="fetch-form">
+      <label class="field">
+        <span>站点 URL <em class="req">*</em></span>
+        <input type="url" id="f-url" name="url" required
+               placeholder="https://docs.example.org/docs/" autocomplete="off">
+      </label>
+      <div class="field">
+        <span>输出格式</span>
+        <div class="chips" id="f-formats">
+          <label class="chip"><input type="checkbox" name="formats" value="md" checked> md</label>
+          <label class="chip"><input type="checkbox" name="formats" value="json" checked> json</label>
+          <label class="chip"><input type="checkbox" name="formats" value="jsonl"> jsonl</label>
+          <label class="chip"><input type="checkbox" name="formats" value="pdf"> pdf</label>
+        </div>
+      </div>
+      <div class="field-row">
+        <label class="field">
+          <span>页数上限 <em class="muted">(0 = 不限)</em></span>
+          <input type="number" id="f-limit" name="limit" min="0" step="1" value="0">
+        </label>
+        <label class="field check">
+          <input type="checkbox" id="f-combined" name="combined">
+          <span>合并 PDF (combined.pdf)</span>
+        </label>
+      </div>
+      <label class="field check">
+        <input type="checkbox" id="f-fresh" name="fresh">
+        <span>强刷(忽略缓存重新抓取)</span>
+      </label>
+      <div class="drawer-actions">
+        <button type="button" class="btn btn-ghost" data-close-drawer>取消</button>
+        <button type="submit" class="btn btn-primary" id="f-submit">开始抓取</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<main id="view" class="view" tabindex="-1"></main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
