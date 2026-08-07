@@ -5,21 +5,27 @@ from __future__ import annotations
 from playwright.sync_api import Error as PWError
 
 
-def render_url(url: str, timeout: float = 30.0, wait_ms: int = 2500) -> str | None:
-    """无头 Chromium 渲染 URL,返回渲染后 HTML;失败返回 None。"""
+def render_url(url: str, timeout: float = 30.0, wait_ms: int = 2500) -> tuple[str | None, str | None]:
+    """无头 Chromium 渲染 URL,返回 (html, error)。
+
+    成功:html 为渲染后 HTML,error 为 None;失败:html 为 None,error 为真实原因
+    (不再静默吞掉异常)。
+    """
     from playwright.sync_api import sync_playwright
 
-    with sync_playwright() as p:
-        try:
+    try:
+        with sync_playwright() as p:
             browser = p.chromium.launch()
-        except PWError as e:
-            raise RuntimeError(f"Chromium 未安装: {e}\n请执行: playwright install chromium") from e
-        try:
-            page = browser.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
-            page.wait_for_timeout(wait_ms)
-            return page.content()
-        except Exception:
-            return None
-        finally:
-            browser.close()
+            try:
+                page = browser.new_page()
+                page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+                page.wait_for_timeout(wait_ms)
+                return page.content(), None
+            finally:
+                browser.close()
+    except PWError as e:
+        if "executable" in str(e).lower():
+            return None, f"Chromium 未安装: {e}\n请执行: playwright install chromium"
+        return None, f"{type(e).__name__}: {e}"
+    except Exception as e:
+        return None, f"{type(e).__name__}: {e}"

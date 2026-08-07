@@ -66,7 +66,22 @@ def fetch(
         js_render=js_render, combined_pdf=combined,
     )
     try:
-        result = asyncio.run(run_site(site, Path(out), fresh=fresh))
+        from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+    except ImportError:  # rich 必装,防御
+        progress = None
+    else:
+        progress = Progress(
+            TextColumn("[bold blue]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeElapsedColumn(),
+        )
+    try:
+        if progress is not None:
+            with progress:
+                result = asyncio.run(run_site(site, Path(out), fresh=fresh, progress=progress))
+        else:
+            result = asyncio.run(run_site(site, Path(out), fresh=fresh))
     except KeyboardInterrupt:
         console.print("[yellow]已中断,部分结果已写出[/yellow]")
         raise typer.Exit(2)
@@ -80,11 +95,19 @@ def build(
     fresh: bool = typer.Option(False, "--fresh", help="忽略缓存重新抓取"),
 ):
     """按配置文件批量抓取所有站点。"""
+    from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+
     sites = load_sites(config)
     for site in sites:
         console.rule(f"{site.site_name} ({site.url})")
         try:
-            result = asyncio.run(run_site(site, Path(out), fresh=fresh))
+            with Progress(
+                TextColumn("[bold blue]{task.description}"),
+                BarColumn(),
+                TextColumn("{task.completed}/{task.total}"),
+                TimeElapsedColumn(),
+            ) as progress:
+                result = asyncio.run(run_site(site, Path(out), fresh=fresh, progress=progress))
             _run(result)
         except KeyboardInterrupt:
             raise typer.Exit(2)
@@ -113,9 +136,14 @@ def inspect(
 
 
 @app.callback(invoke_without_command=True)
-def _version(version: bool = typer.Option(False, "--version", help="显示版本")):
+def _main(ctx: typer.Context, version: bool = typer.Option(False, "--version", help="显示版本")):
     if version:
         console.print(f"oh-my-wikibro {__version__}")
+        raise typer.Exit()
+    if ctx.invoked_subcommand is None:
+        from .interactive import main_loop
+
+        main_loop()
         raise typer.Exit()
 
 
