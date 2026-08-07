@@ -18,6 +18,8 @@ from .adapters import get_adapter
 from .cli import _run
 from .config import SiteConfig, load_sites, site_from_args
 from .discover import discover
+from .exam import LLMConfigError, LLMError, generate_exam, review_code
+from .exam.variants import add_variants
 from .runner import _detect_site_adapter, run_site
 from .verify import render_report, verify_site
 
@@ -230,6 +232,67 @@ def _verify_flow() -> None:
     console.print("[red]校验发现缺失/空文件[/red]" if bad else "[green]校验通过[/green]")
 
 
+def _exam_flow() -> None:
+    """生成练习试题:选站点 → 主题 → 难度 → 生成 → 变体 / 代码审查。"""
+    sites = _list_existing()
+    if not sites:
+        console.print("[yellow]omwb-out 下还没有已抓取的站点,先抓取再生成试题[/yellow]")
+        return
+    table = Table(title="已抓取站点")
+    table.add_column("名称", style="bold")
+    table.add_column("URL")
+    table.add_column("页数")
+    for name, m in sites:
+        table.add_row(name, m.get("url", ""), str(m.get("pages", 0)))
+    console.print(table)
+    choice = questionary.select(
+        "选择语料站点",
+        choices=[f"{name} ({m.get('pages', 0)} 页)" for name, m in sites] + ["返回"],
+    ).ask()
+    if choice is None or choice == "返回":
+        return
+    site = choice.split(" (")[0]
+    topic = questionary.text("主题关键词", validate=lambda v: bool(v.strip())).ask()
+    if not topic:
+        return
+    level = questionary.select("难度", choices=["basic", "medium", "hard"],
+                               default="medium").ask()
+    if level is None:
+        return
+    try:
+        exam = generate_exam(site, topic, level=level, out=DEFAULT_OUT, variants=0)
+    except (LLMConfigError, LLMError, FileNotFoundError, ValueError) as e:
+        console.print(f"[red]✗ 生成失败: {e}[/red]")
+        return
+    exam_path = Path(DEFAULT_OUT) / site / "exam" / f"exam-{exam['id']}.json"
+    console.print(f"[bold green]试题已生成[/bold green] [{exam['level']}] "
+                  f"{exam.get('title') or exam['task'][:60]}")
+    console.print(f"  要求实现: {exam['task']}")
+    console.print(f"  输出规格: {exam['output_spec']}")
+    ann_items = exam.get("source_annotations") or []
+    n_ann = sum(len(item.get("annotations") or []) for item in ann_items)
+    if n_ann:
+        console.print(f"  原文讲解批注: {n_ann} 条,覆盖 {len(ann_items)} 段语料原文")
+    console.print(f"[dim]  保存: {exam_path}[/dim]")
+    if questionary.confirm("生成变体(举一反三)?", default=True).ask():
+        try:
+            variants = add_variants(exam_path, count=3)
+            console.print(f"[bold green]已生成 {len(variants)} 个变体并写回[/bold green]")
+        except (LLMConfigError, LLMError, ValueError) as e:
+            console.print(f"[red]✗ 变体生成失败: {e}[/red]")
+    if questionary.confirm("审查一个代码文件?", default=False).ask():
+        code = questionary.text("代码文件路径").ask()
+        if code:
+            try:
+                report = review_code(exam_path, Path(code), out=DEFAULT_OUT)
+                total = report["total"]
+                console.print(f"[bold green]审查完成[/bold green] 评分: {total['score']}/10 | "
+                              f"结论: [cyan]{total['verdict']}[/cyan]")
+                console.print(f"  一句话结论: {total.get('conclusion', '')}")
+            except (LLMConfigError, LLMError, FileNotFoundError, ValueError) as e:
+                console.print(f"[red]✗ 审查失败: {e}[/red]")
+
+
 def main_loop() -> None:
     console.print(_logo())
     console.print("[dim]全量抓取 wiki/在线技术文档 → Markdown / JSON / PDF / LLM 语料[/dim]\n")
@@ -243,6 +306,7 @@ def main_loop() -> None:
                     "按配置文件批量抓取",
                     "查看/更新已抓取站点",
                     "校验输出完整性",
+                    "生成练习试题",
                     "退出",
                 ],
             ).ask()
@@ -265,3 +329,5 @@ def main_loop() -> None:
             _update_flow()
         elif choice == "校验输出完整性":
             _verify_flow()
+        elif choice == "生成练习试题":
+            _exam_flow()

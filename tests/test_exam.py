@@ -33,10 +33,26 @@ def _mock_exam_raw() -> dict:
         "constraints": ["仅用 Python 标准库", "get/put 平均复杂度 O(1)"],
         "hints": ["参考语料中关于哈希表与链表的章节"],
         "level": "medium",
-        "concepts": [
-            {"term": "哈希表", "plain_explanation": "用键直接算出存储位置的容器",
-             "analogy": "像按门牌号找房间,不用一间间找",
-             "why_it_matters": "决定 get/put 能否 O(1)"},
+        "source_annotations": [
+            {"material_index": 1,
+             "anchor": "列表(list)是 Python 内置序列",
+             "type": "concept_explain",
+             "explanation": "列表(list)是 Python 内置的序列容器,支持按位置存取,像宿舍楼里编了号的储物柜:"
+                            "想取第 3 个柜子里的东西直接走过去就行,不用从第 1 个开始数。"
+                            "本题要求 get/put 平均 O(1),正好对应哈希表这个'按钥匙直接开门'的结构。"},
+            {"material_index": 1,
+             "anchor": "链表由节点串成,适合频繁插入删除",
+             "type": "pitfall",
+             "explanation": "链表每个节点只记住下一个节点,插入删除只需改邻居指针,像火车车厢摘挂:"
+                            "中间插一节车厢不用挪动其他车厢。但链表按位置访问是 O(n),"
+                            "用列表实现 LRU 时若在头部插入导致整体后移,每次 put 都会变成 O(n),"
+                            "这是常见的复杂度陷阱,需用双向链表+哈希表组合规避。"},
+            {"material_index": 2,
+             "anchor": "归并排序时间复杂度 O(n log n)",
+             "type": "task_link",
+             "explanation": "O(n log n) 意味着数据量翻倍时操作数只多一个 log 因子,像按姓氏字典序分批整理:"
+                            "先把大名单对半拆到最小,再两两合并,10 万条数据约 170 万次比较,一秒内完成。"
+                            "本题虽然没有排序要求,但理解复杂度记号有助于判断你的 LRU 实现是否达标。"},
         ],
     }
 
@@ -62,7 +78,7 @@ def site_dir(tmp_path: Path) -> Path:
          "tokens": 60, "text": "列表(list)是 Python 内置序列。链表由节点串成,适合频繁插入删除。"},
         {"site": "demo-site", "url": "https://demo.dev/sort", "path": "sort",
          "title": "排序算法", "seq": 0, "heading_path": ["排序"],
-         "tokens": 60, "text": "归并排序时间复杂度 O(n log n)。"},
+         "tokens": 60, "text": "归并排序时间复杂度 O(n log n),比列表(list)暴力排序更快。"},
     ]
     (d / "corpus.jsonl").write_text(
         "\n".join(json.dumps(c, ensure_ascii=False) for c in chunks) + "\n", encoding="utf-8")
@@ -124,12 +140,20 @@ def test_generate_parses_fenced_json_and_variants(site_dir: Path, tmp_path: Path
                          config=_config(handler))
     assert exam["task"].startswith("实现一个 LRU 缓存类")
     assert exam["output_spec"]
-    assert exam["concepts"][0]["term"] == "哈希表"
-    assert exam["concepts"][0]["analogy"] == "像按门牌号找房间,不用一间间找"
+    # 原文锚定讲解:source_chunk 原样绑定语料文本,anchor 能定位回原文,explanation 展开(≥80 字)
+    sa = exam["source_annotations"]
+    assert len(sa) == 2
+    assert sa[0]["source_chunk"] == "列表(list)是 Python 内置序列。链表由节点串成,适合频繁插入删除。"
+    ann0 = sa[0]["annotations"][0]
+    assert ann0["anchor"] in sa[0]["source_chunk"]
+    assert ann0["type"] in ("concept_explain", "plain_words", "example", "pitfall", "task_link")
+    assert len(ann0["explanation"]) >= 80
+    assert len(sa[0]["annotations"]) == 2  # 同一段可挂多条批注
     assert len(exam["variants"]) == 2
     assert exam["source_chunks"] and exam["source_chunks"][0]["url"].startswith("https://")
     path = site_dir / "exam" / f"exam-{exam['id']}.json"
     assert path.is_file()
+    assert (site_dir / "exam" / f"exam-{exam['id']}.md").is_file()
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert saved["task"] == exam["task"]
     assert len(saved["variants"]) == 2
@@ -265,7 +289,8 @@ def _mock_review_raw() -> dict:
                  "concrete_explanation": "像给整个任务取个名字,后面都从这里开始"}]},
             {"line": 3, "code": "        for j in nums:", "annotations": [
                 {"type": "complexity", "text": "嵌套循环导致 O(n²)",
-                 "concrete_explanation": "外层跑 n 次、内层又跑 n 次,共 n×n 次操作,就像两两握手"}]},
+                 "concrete_explanation": "外层跑 n 次、内层又跑 n 次,共 n×n 次操作,就像两两握手",
+                 "doc_ref": "文档:输出规格要求「get/put 平均复杂度 O(1)」,双重循环不满足"}]},
         ],
         "complexity_analysis": {
             "algorithm": "双重循环暴力遍历",
@@ -310,6 +335,7 @@ def test_review_annotated_anchoring_and_reports(tmp_path: Path):
     assert by_line[1]["annotations"][0]["type"] == "explain"
     assert by_line[3]["annotations"][0]["type"] == "complexity"
     assert by_line[2]["annotations"] == []
+    assert by_line[3]["annotations"][0]["doc_ref"]  # 文档原文对照
     # 复杂度规模推演(两档)
     ca = report["complexity_analysis"]
     assert len(ca["scale_deduction"]) == 2
@@ -325,6 +351,7 @@ def test_review_annotated_anchoring_and_reports(tmp_path: Path):
     assert "L3 [注" in md and "[complexity]" in md
     assert "```python" in md
     assert "10^10 次" in md
+    assert "[文档对照]" in md
 
 
 def test_review_code_too_large(tmp_path: Path):
@@ -381,8 +408,10 @@ def test_cli_exam_generate_summary(tmp_path: Path, monkeypatch):
         return {
             "id": "demo-1", "site": site, "topic": topic, "level": "medium",
             "title": "LRU 缓存", "task": "实现 LRU 缓存", "output_spec": "get/put O(1)",
-            "concepts": [], "variants": [{"dimension": "性能要求", "title": "v1",
-                                          "task": "t1", "output_spec": "o1"}],
+            "source_annotations": [{"source_chunk": "原文", "annotations": [
+                {"anchor": "原文句子", "type": "concept_explain", "explanation": "讲解"}]}],
+            "variants": [{"dimension": "性能要求", "title": "v1",
+                          "task": "t1", "output_spec": "o1"}],
         }
 
     monkeypatch.setattr(cli_mod, "generate_exam", fake_generate)

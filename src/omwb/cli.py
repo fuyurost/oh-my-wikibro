@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import typer
@@ -13,6 +14,10 @@ from . import __version__
 from .adapters import get_adapter
 from .config import SiteConfig, load_sites, site_from_args
 from .discover import discover
+from .exam.generate import generate_exam
+from .exam.llm import LLMConfigError, LLMError
+from .exam.review import review_code, review_output_paths
+from .exam.variants import add_variants
 from .runner import _detect_site_adapter, run_site
 
 app = typer.Typer(add_completion=False, help="全量抓取 wiki/在线技术文档 → Markdown/JSON/PDF/LLM 语料")
@@ -200,6 +205,101 @@ def inspect(
         console.print(f"  {u}")
     if len(disc.urls) > limit:
         console.print(f"  … 共 {len(disc.urls)} 个")
+
+
+exam_app = typer.Typer(name="exam", help="开放性试题:LLM 生成 / 批注式代码审查 / 自动举一反三")
+app.add_typer(exam_app)
+
+
+@exam_app.command("generate")
+def exam_generate(
+    site: str = typer.Argument(..., help="站点名(omwb-out 下的目录,需已抓取语料)"),
+    topic: str = typer.Argument(..., help="主题关键词,用于语料选材"),
+    level: str = typer.Option("medium", "--level", help="难度:basic|medium|hard"),
+    out: str = typer.Option("omwb-out", "--out", "-o", help="输出根目录"),
+    variants: int = typer.Option(3, "--variants", help="自动生成变体数量(0 关闭)"),
+    base_url: str = typer.Option(None, "--base-url", envvar="OMWB_LLM_BASE_URL", help="LLM 服务地址"),
+    api_key: str = typer.Option(None, "--api-key", envvar="OMWB_LLM_API_KEY", help="LLM API Key"),
+    model: str = typer.Option(None, "--model", envvar="OMWB_LLM_MODEL", help="LLM 模型名"),
+):
+    """基于已抓取语料按主题生成开放性试题(含 concepts 与自动变体)。"""
+    try:
+        exam = generate_exam(site, topic, level=level, out=out, variants=variants,
+                             base_url=base_url, api_key=api_key, model=model)
+    except (LLMConfigError, LLMError, FileNotFoundError, ValueError) as e:
+        console.print(f"[red]✗ {e}[/red]")
+        raise typer.Exit(1)
+    path = Path(out) / site / "exam" / f"exam-{exam['id']}.json"
+    console.print(f"[bold green]试题已生成[/bold green] 难度: [cyan]{exam['level']}[/cyan] | "
+                  f"主题: [cyan]{exam['topic']}[/cyan]")
+    console.print(f"题目: {exam.get('title') or exam['task'][:80]}")
+    console.print(f"要求实现: {exam['task']}")
+    console.print(f"输出规格: {exam['output_spec']}")
+    ann_items = exam.get("source_annotations") or []
+    n_ann = sum(len(item.get("annotations") or []) for item in ann_items)
+    if n_ann:
+        console.print(f"原文讲解批注: {n_ann} 条,覆盖 {len(ann_items)} 段语料原文")
+    variant_list = exam.get("variants") or []
+    console.print(f"变体({len(variant_list)} 个):")
+    for v in variant_list:
+        console.print(f"  - [{v.get('dimension', '')}] {v.get('title') or v['task'][:60]}")
+    if not variant_list:
+        console.print("  (未生成)")
+    console.print(f"[dim]保存: {path}[/dim]")
+
+
+@exam_app.command("review")
+def exam_review(
+    exam_json: Path = typer.Argument(..., help="试题 JSON 路径(omwb exam generate 生成)"),
+    code: Path = typer.Argument(..., help="待审查的代码文件路径"),
+    out: str = typer.Option("omwb-out", "--out", "-o", help="输出根目录"),
+    base_url: str = typer.Option(None, "--base-url", envvar="OMWB_LLM_BASE_URL", help="LLM 服务地址"),
+    api_key: str = typer.Option(None, "--api-key", envvar="OMWB_LLM_API_KEY", help="LLM API Key"),
+    model: str = typer.Option(None, "--model", envvar="OMWB_LLM_MODEL", help="LLM 模型名"),
+):
+    """LLM 批注式审查学习者代码,输出 markdown + JSON 报告。"""
+    try:
+        report = review_code(exam_json, code, out=out,
+                             base_url=base_url, api_key=api_key, model=model)
+    except (LLMConfigError, LLMError, FileNotFoundError, ValueError) as e:
+        console.print(f"[red]✗ {e}[/red]")
+        raise typer.Exit(1)
+    total = report["total"]
+    console.print(f"[bold green]审查完成[/bold green] 评分: {total['score']}/10 | "
+                  f"结论: [cyan]{total['verdict']}[/cyan]")
+    console.print(f"一句话结论: {total.get('conclusion', '')}")
+    ann = report.get("annotated_code") or []
+    n_ann = sum(len(a["annotations"]) for a in ann)
+    console.print(f"批注: {n_ann} 条,覆盖 {len(ann)} 行代码")
+    ca = report.get("complexity_analysis") or {}
+    if ca.get("complexity"):
+        console.print(f"复杂度: {ca['complexity']}")
+    for row in (ca.get("scale_deduction") or [])[:2]:
+        console.print(f"  规模推演: {row.get('scale', '')} → {row.get('operations', '')} → "
+                      f"{row.get('est_time', '')}")
+    exam = json.loads(exam_json.read_text(encoding="utf-8"))
+    md_path, _ = review_output_paths(exam, out)
+    console.print(f"[dim]报告: {md_path}[/dim]")
+
+
+@exam_app.command("variants")
+def exam_variants(
+    exam_json: Path = typer.Argument(..., help="试题 JSON 路径"),
+    count: int = typer.Option(3, "--count", help="变体数量"),
+    base_url: str = typer.Option(None, "--base-url", envvar="OMWB_LLM_BASE_URL", help="LLM 服务地址"),
+    api_key: str = typer.Option(None, "--api-key", envvar="OMWB_LLM_API_KEY", help="LLM API Key"),
+    model: str = typer.Option(None, "--model", envvar="OMWB_LLM_MODEL", help="LLM 模型名"),
+):
+    """为已有试题自动生成变体并写回 variants 数组(举一反三)。"""
+    try:
+        variants = add_variants(exam_json, count=count,
+                                base_url=base_url, api_key=api_key, model=model)
+    except (LLMConfigError, LLMError, FileNotFoundError, ValueError) as e:
+        console.print(f"[red]✗ {e}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[bold green]已生成 {len(variants)} 个变体并写回[/bold green] {exam_json}")
+    for v in variants:
+        console.print(f"  - [{v.get('dimension', '')}] {v.get('title') or v['task'][:60]}")
 
 
 @app.callback(invoke_without_command=True)
