@@ -116,6 +116,36 @@ def build(
 
 
 @app.command()
+def serve(
+    out: str = typer.Option("omwb-out", "--out", "-o", help="输出根目录(含各站点 manifest.json)"),
+    port: int = typer.Option(8732, "--port", help="Web UI 监听端口"),
+    open_browser: bool = typer.Option(False, "--open", help="启动后自动打开浏览器"),
+):
+    """启动本地 Web UI:站点列表 / 发起抓取 / 详情语料 / 校验报告。"""
+    import os
+    import sys
+    import threading
+
+    import uvicorn
+
+    from .webapp import create_app
+
+    web_app = create_app(Path(out))
+    url = f"http://127.0.0.1:{port}/"
+    if open_browser:
+        def _open():
+            if sys.platform == "win32":
+                os.startfile(url)
+            else:
+                import webbrowser
+
+                webbrowser.open(url)
+        threading.Timer(1.2, _open).start()
+    console.print(f"[bold green]Web UI[/bold green] {url}  输出目录: [cyan]{out}[/cyan]")
+    uvicorn.run(web_app, host="127.0.0.1", port=port, log_level="info")
+
+
+@app.command()
 def inspect(
     url: str = typer.Argument(..., help="站点起始 URL"),
     adapter: str = typer.Option("auto", "--adapter", "-a", help="适配器(auto 自动检测)"),

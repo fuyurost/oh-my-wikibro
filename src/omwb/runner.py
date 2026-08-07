@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import httpx
@@ -35,15 +36,24 @@ def _detect_site_adapter(site: SiteConfig) -> str:
 
 
 async def run_site(site: SiteConfig, out_root: Path, fresh: bool = False,
-                   progress=None, task_id=None) -> SiteResult:
-    """完整跑一个站点,返回结果。progress/task_id 供 rich 进度条推进。"""
+                   progress=None, task_id=None,
+                   on_event: Callable[[dict], None] | None = None) -> SiteResult:
+    """完整跑一个站点,返回结果。
+
+    progress/task_id 供 rich 进度条推进;on_event 可选,每完成一页/每个转换阶段
+    回调一个事件 dict(Web UI 经 SSE 转发)。不传 on_event 则完全无回调,现有
+    rich 进度条逻辑不受影响。
+    """
     out_dir = out_root / site.site_name
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    adapter_name = site.adapter if site.adapter != "auto" else _detect_site_adapter(site)
+    # _detect_site_adapter / discover 内部用同步 httpx,直接调用会阻塞事件循环
+    # (Web UI 场景下整个服务器冻结)。to_thread 包装不改变行为与结果。
+    adapter_name = site.adapter if site.adapter != "auto" \
+        else await asyncio.to_thread(_detect_site_adapter, site)
     adapter = get_adapter(adapter_name)
 
-    disc = discover(site, adapter)
+    disc = await asyncio.to_thread(discover, site, adapter)
     if disc.llms_full is not None:
         # llms-full.txt:整站内容就是一份大 markdown
         page = Page(
@@ -59,7 +69,9 @@ async def run_site(site: SiteConfig, out_root: Path, fresh: bool = False,
             out_dir=str(out_dir), pages=[page], started_at=time.time(),
         )
         result.finished_at = time.time()
-        await _convert(result, site, out_dir)
+        if on_event is not None:
+            on_event({"type": "page_done", "url": page.url, "ok": True, "done": 1, "total": 1})
+        await _convert(result, site, out_dir, on_event=on_event)
         _write_manifest(result, disc.source, out_dir)
         return result
 
@@ -100,15 +112,28 @@ async def run_site(site: SiteConfig, out_root: Path, fresh: bool = False,
                 await asyncio.sleep(1.0)
         return None, last_err
 
+    done_count = 0
+
     async def process(url: str) -> None:
+        nonlocal done_count
+        failed_before = len(result.failed)
         try:
             await _process_one(url)
         except Exception as e:  # 单页失败不拖垮整站
             page = Page(url=url, rel_path=page_rel_path(url), error=f"{type(e).__name__}: {e}")
             result.failed.append(page)
         finally:
+            done_count += 1
             if progress is not None and task_id is not None:
                 progress.update(task_id, advance=1)
+            if on_event is not None:
+                on_event({
+                    "type": "page_done",
+                    "url": url,
+                    "ok": len(result.failed) == failed_before,
+                    "done": done_count,
+                    "total": len(urls),
+                })
 
     async def _process_one(url: str) -> None:
         async with sem:
@@ -166,28 +191,32 @@ async def run_site(site: SiteConfig, out_root: Path, fresh: bool = False,
     pdf_task_id = None
     if progress is not None and "pdf" in site.formats and result.pages:
         pdf_task_id = progress.add_task(f"PDF 转换 ({site.site_name})", total=len(result.pages))
-    await _convert(result, site, out_dir, progress=progress, pdf_task_id=pdf_task_id)
+    await _convert(result, site, out_dir, progress=progress, pdf_task_id=pdf_task_id,
+                   on_event=on_event)
     _write_manifest(result, disc.source, out_dir)
     return result
 
 
 async def _convert(result: SiteResult, site: SiteConfig, out_dir: Path,
-                   progress=None, pdf_task_id=None) -> None:
+                   progress=None, pdf_task_id=None,
+                   on_event: Callable[[dict], None] | None = None) -> None:
     for fmt in site.formats:
         if fmt == "md":
-            await asyncio.to_thread(write_all_md, result, out_dir / "md")
+            n = await asyncio.to_thread(write_all_md, result, out_dir / "md")
         elif fmt == "json":
-            await asyncio.to_thread(write_all_json, result, out_dir)
+            n, _ = await asyncio.to_thread(write_all_json, result, out_dir)
         elif fmt == "jsonl":
-            await asyncio.to_thread(write_corpus_jsonl, result, out_dir)
+            n, _ = await asyncio.to_thread(write_corpus_jsonl, result, out_dir)
             await asyncio.to_thread(write_corpus_md, result, out_dir)
         elif fmt == "pdf":
             # playwright sync API 不能在 asyncio 事件循环线程内运行
-            _, combined_path = await asyncio.to_thread(
+            n, combined_path = await asyncio.to_thread(
                 write_all_pdf, result, out_dir / "pdf", combined=site.combined_pdf,
                 progress=progress, task_id=pdf_task_id)
             if combined_path is not None:
                 combined_path.replace(out_dir / "combined.pdf")
+        if on_event is not None and result.pages:
+            on_event({"type": "stage", "stage": fmt, "done": n, "total": len(result.pages)})
 
 
 def _write_manifest(result: SiteResult, source: str, out_dir: Path) -> None:
